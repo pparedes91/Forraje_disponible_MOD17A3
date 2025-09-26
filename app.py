@@ -3,7 +3,7 @@ import ee
 import geemap
 import fiona
 import shapely.geometry as geom
-import pandas as pd
+import pandas as gpd
 
 # Inicializar Earth Engine
 try:
@@ -73,3 +73,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"Error al procesar el archivo: {e}")
+
