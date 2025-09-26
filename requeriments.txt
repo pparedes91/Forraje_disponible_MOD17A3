@@ -1,7 +1,7 @@
 streamlit
 earthengine-api
 geemap
-geopandas
-shapely
 fiona
+shapely
+simplekml
 pandas
