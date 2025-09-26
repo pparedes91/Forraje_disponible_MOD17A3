@@ -1,10 +1,9 @@
 import streamlit as st
-import geopandas as gpd
 import ee
 import geemap
+import fiona
+import shapely.geometry as geom
 import pandas as pd
-import tempfile
-import zipfile
 
 # Inicializar Earth Engine
 try:
@@ -13,56 +12,64 @@ except Exception as e:
     ee.Authenticate()
     ee.Initialize()
 
-st.title("🌱 NPP (MOD17A3, 500m, anual) por polígonos")
+st.title("🌱 Forraje Disponible con MOD17A3 (500m)")
 
-# Subida de archivo
-uploaded_file = st.file_uploader("Subí tu archivo KML, GeoJSON o Shapefile (.zip)", 
-                                 type=["kml", "geojson", "zip"])
+st.write("""
+Subí un archivo **KML o SHP** con tus polígonos.
+La app calculará el **promedio y desvío estándar de NPP (kgC/ha/año)**
+para cada polígono.
+""")
 
-if uploaded_file:
-    # Guardar archivo temporal
-    with tempfile.NamedTemporaryFile(delete=False, suffix=uploaded_file.name) as tmp:
-        tmp.write(uploaded_file.read())
-        filepath = tmp.name
+uploaded_file = st.file_uploader("📂 Subí tu archivo (KML o SHP)", type=["kml", "shp"])
 
-    # Leer archivo con GeoPandas
-    if filepath.endswith(".zip"):
-        with zipfile.ZipFile(filepath, "r") as zip_ref:
-            zip_ref.extractall("shapefile")
-        gdf = gpd.read_file("shapefile")
-    else:
-        gdf = gpd.read_file(filepath)
+def read_polygons(file):
+    polygons = []
+    with fiona.BytesCollection(file.read()) as src:
+        for feature in src:
+            shape = geom.shape(feature["geometry"])
+            polygons.append(shape)
+    return polygons
 
-    st.success(f"✅ Se leyeron {len(gdf)} polígonos del archivo.")
+if uploaded_file is not None:
+    try:
+        # Leer polígonos con fiona
+        polygons = read_polygons(uploaded_file)
 
-    # Convertir a EE FeatureCollection
-    fc = geemap.geopandas_to_ee(gdf)
+        # Convertir a geometrías de EE
+        ee_polygons = [ee.Geometry.Polygon(list(poly.exterior.coords)) for poly in polygons]
 
-    # Colección MOD17A3 (NPP anual, 500m)
-    dataset = ee.ImageCollection("MODIS/061/MOD17A3HGF").select("Npp")
+        # Colección MOD17A3 (NPP)
+        dataset = ee.ImageCollection("MODIS/061/MOD17A3HGF").select("Npp")
 
-    # Función para calcular promedio y desvío
-    def zonal_stats(img):
-        year = ee.Date(img.get("system:time_start")).get("year")
-        stats = img.reduceRegions(
-            collection=fc,
-            reducer=ee.Reducer.mean().combine(
-                reducer2=ee.Reducer.stdDev(), sharedInputs=True
-            ),
-            scale=500,
+        results = []
+        for i, poly in enumerate(ee_polygons):
+            # Reducir la colección a la región
+            stats = dataset.mean().reduceRegion(
+                reducer=ee.Reducer.mean().combine(
+                    reducer2=ee.Reducer.stdDev(), sharedInputs=True
+                ),
+                geometry=poly,
+                scale=500,
+                maxPixels=1e13
+            )
+            results.append({
+                "Polígono": f"Polígono {i+1}",
+                "NPP_promedio": stats.getInfo().get("Npp_mean"),
+                "NPP_desvío": stats.getInfo().get("Npp_stdDev")
+            })
+
+        # Mostrar resultados en tabla
+        df = pd.DataFrame(results)
+        st.dataframe(df)
+
+        # Descargar CSV
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="⬇️ Descargar resultados en CSV",
+            data=csv,
+            file_name="resultados_mod17a3.csv",
+            mime="text/csv",
         )
-        return stats.map(lambda f: f.set("year", year))
 
-    # Aplicar a la colección completa
-    results = dataset.map(zonal_stats).flatten()
-
-    # Convertir a pandas DataFrame
-    df = geemap.ee_to_pandas(results)
-
-    # Mostrar preview
-    st.dataframe(df.head())
-
-    # Botón de descarga CSV
-    st.download_button("⬇️ Descargar CSV con NPP por polígono y año",
-                       df.to_csv(index=False),
-                       "NPP_MOD17A3.csv")
+    except Exception as e:
+        st.error(f"Error al procesar el archivo: {e}")
