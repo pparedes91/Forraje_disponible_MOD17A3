@@ -1,26 +1,28 @@
 import streamlit as st
 import ee
-import geemap.foliumap as geemap
+import json
+from google.oauth2 import service_account
 import fiona
 import shapely.geometry as geom
 import pandas as pd
+import geemap.foliumap as geemap
 
-# Inicializar Earth Engine
-try:
-    ee.Initialize()
-except Exception:
-    ee.Authenticate()
-    ee.Initialize()
+# --- Autenticación con Service Account desde secrets ---
+service_account = st.secrets["ee_service_account"]
+key_dict = json.loads(st.secrets["ee_service_account_key"])
+credentials = ee.ServiceAccountCredentials(service_account, key_dict)
+ee.Initialize(credentials)
 
-st.title("🌱 Forraje Disponible con MOD17A3 (500m)")
+st.title("🌱 Forraje Disponible MOD17A3 (500m)")
 
 st.write("""
 Subí un archivo **KML o SHP** con tus polígonos.
 La app calculará el **promedio y desvío estándar de NPP (kgC/ha/año)**
-para cada polígono, y además podrás verlos en un mapa.
+para cada polígono, y además mostrará los resultados en un mapa.
 """)
 
 uploaded_file = st.file_uploader("📂 Subí tu archivo (KML o SHP)", type=["kml", "shp"])
+
 
 def read_polygons(file):
     """Leer polígonos de un archivo KML/SHP y devolver lista shapely"""
@@ -31,16 +33,17 @@ def read_polygons(file):
             polygons.append(shape)
     return polygons
 
+
 if uploaded_file is not None:
     try:
-        # Leer polígonos
+        # Leer polígonos shapely
         polygons = read_polygons(uploaded_file)
         ee_polygons = [ee.Geometry.Polygon(list(poly.exterior.coords)) for poly in polygons]
 
         # Crear mapa
         m = geemap.Map(center=[-40, -65], zoom=4)
 
-        # Cargar dataset MOD17A3 (NPP anual 500m)
+        # Dataset MOD17A3HGF
         dataset = ee.ImageCollection("MODIS/061/MOD17A3HGF").select("Npp")
         latest = dataset.sort("system:time_start", False).first()
 
@@ -52,14 +55,14 @@ if uploaded_file is not None:
 
         m.addLayer(latest, vis_params, "NPP más reciente")
 
-        # Añadir polígonos al mapa
+        # Añadir polígonos
         for i, poly in enumerate(ee_polygons):
             m.addLayer(poly, {"color": "red"}, f"Polígono {i+1}")
 
         st.subheader("🗺️ Mapa interactivo")
         m.to_streamlit(height=500)
 
-        # Botón para calcular estadísticas
+        # Botón calcular estadísticas
         if st.button("📊 Calcular promedio y desvío por polígono"):
             results = []
             for i, poly in enumerate(ee_polygons):
@@ -78,9 +81,10 @@ if uploaded_file is not None:
                 })
 
             df = pd.DataFrame(results)
+            st.subheader("📊 Resultados")
             st.dataframe(df)
 
-            # Botón descarga CSV
+            # Descargar CSV
             csv = df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="⬇️ Descargar resultados en CSV",
