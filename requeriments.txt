@@ -5,3 +5,4 @@ fiona
 shapely
 simplekml
 pandas
+google-auth
