@@ -95,3 +95,4 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"Error al procesar el archivo: {e}")
+
