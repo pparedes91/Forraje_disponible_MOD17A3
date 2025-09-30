@@ -1,8 +1,2 @@
 streamlit
 geemap
-geopandas
-fiona
-shapely
-pandas
-pyproj
-google-auth
