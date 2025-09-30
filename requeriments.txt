@@ -1,8 +1,9 @@
 streamlit
 earthengine-api
 geemap
+geopandas
 fiona
 shapely
-simplekml
 pandas
+pyproj
 google-auth
