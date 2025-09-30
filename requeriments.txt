@@ -1,3 +1,9 @@
 streamlit
 geemap
 earthengine-api
+geopandas
+fiona
+shapely
+pandas
+pyproj
+google-auth
